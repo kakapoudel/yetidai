@@ -1,0 +1,72 @@
+import asyncio
+import re
+from typing import Optional, List
+
+class Functional:
+    """Helper class for Discord bot to detect user input and manage message history."""
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.user_input: Optional[str] = None
+
+    # ====================== MESSAGE HISTORY ======================
+    async def get_message_history(self, channel, limit: int = 8) -> List[str]:
+        """
+        Returns recent messages formatted as "Username: message" 
+        (oldest first). Ignores bot messages.
+        """
+        messages: List[str] = []
+
+        async for msg in channel.history(limit=limit, oldest_first=False):
+            if msg.author == self.bot.user or msg.author.bot:
+                continue  # Skip own and other bot messages
+
+            content = msg.content.strip()
+            if content:
+                formatted = f"{msg.author.display_name}: {content}"
+                messages.append(formatted)
+
+        messages.reverse()  # Oldest first → better for AI context
+        return messages
+
+    # ====================== DETECT USER CALL ======================
+    async def call(self, message) -> Optional[str]:
+        """
+        Detects if the bot should respond.
+        Supports: !chat question  OR  @Bot question
+        Returns cleaned user input or None.
+        """
+        if message.author == self.bot.user or message.author.bot:
+            return None
+
+        self.user_input = None
+
+        # 1. Command: !chat ...
+        if message.content.startswith('!chat'):
+            self.user_input = message.content[len('!chat'):].strip()
+
+        # 2. Mention: @Bot ...
+        elif self.bot.user.mentioned_in(message):
+            self.user_input = message.content.strip()
+
+            # Clean bot mention
+            for mention in message.mentions:
+                if mention == self.bot.user:
+                    self.user_input = re.sub(
+                        rf'<@!?{self.bot.user.id}>', '', self.user_input
+                    ).strip()
+                    break
+
+        # No valid input
+        if not self.user_input:
+            if message.content.startswith('!chat'):
+                try:
+                    await message.channel.send(
+                        "कृपया आफ्नो प्रश्न लेख्नुहोस्।\n"
+                        "उदाहरण: `!chat नमस्ते कस्तो छ?`"
+                    )
+                except Exception:
+                    pass  # Avoid crashing if send fails
+            return None
+
+        return self.user_input
